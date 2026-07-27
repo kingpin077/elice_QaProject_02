@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 
 TARGET = os.getenv("TARGET", "dev").lower()
 
+# 생성한 게시글의 자동 정리를 끄는 스위치 (기본 꺼짐).
+# 테스트가 만든 글을 웹 UI에서 눈으로 확인해야 할 때만 켠다.
+# ⚠️ 켠 채로 두면 서버에 테스트 글이 계속 쌓이므로, 확인 후 반드시 수동 삭제한다.
+KEEP_TEST_DATA = os.getenv("KEEP_TEST_DATA", "").strip().lower() in ("1", "true", "yes", "y")
+
 
 # ── 게시판 테스트 공용 파라미터·데이터 (여러 test_board_*.py가 import해서 공유) ──
 # classhome_fixture(CLASSROOM_CLIENTS 등)와 동일하게, parametrize 상수는 픽스처 모듈에 둔다.
@@ -146,9 +151,22 @@ def track_articles():
     """생성한 게시글을 테스트 종료 후 자동 삭제.
 
     테스트에서 (client, board_article_id) 튜플을 append 하면 teardown에서 역순으로 삭제.
+
+    KEEP_TEST_DATA=1 로 실행하면 삭제를 건너뛴다. 테스트가 만든 글이 몇 초 만에 지워져
+    웹 UI에서 확인할 수 없는 문제 때문에 둔 스위치이며, 남긴 글의 ID를 경고 로그로 출력한다.
+    확인이 끝나면 그 ID로 반드시 수동 삭제해야 서버에 테스트 글이 쌓이지 않는다.
     """
     created: list[tuple[BoardApiClient, int]] = []
     yield created
+
+    if KEEP_TEST_DATA:
+        for client, article_id in created:
+            logger.warning(
+                "KEEP_TEST_DATA=1 → 자동 정리를 건너뜁니다. UI 확인 후 수동 삭제 필요: "
+                "board_article_id=%s [%s/%s]", article_id, client.env_name, client.role
+            )
+        return
+
     for client, article_id in reversed(created):
         try:
             client.delete_article(article_id)
